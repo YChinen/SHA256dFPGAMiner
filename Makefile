@@ -1,21 +1,58 @@
-TOP      := sha256_round_core
-RTL      := $(abspath src/rtl/sha256d/sha256_round_core.sv)
-TB       := $(abspath src/sim/sha256d/tb_sha256_round_core.cpp)
-OBJDIR   := build/obj_dir
-
 VERILATOR := verilator
+OBJROOT   := build
+VFLAGS    := -Wall --cc --exe --build -O3 -j 0 --trace
 
-.PHONY: test clean
+.PHONY: test clean test-round test-compress
 
-test:
-	mkdir -p $(OBJDIR)
-	$(VERILATOR) -Wall --cc --exe --build \
-	  -O3 -j 0 \
-	  --trace \
-	  -Mdir $(OBJDIR) \
-	  --top-module $(TOP) \
-	  $(RTL) $(TB)
-	$(OBJDIR)/V$(TOP)
+test: test-round test-compress
+
+# ----------------------------------------
+# sha256_round_core
+# ----------------------------------------
+ROUND_TOP := sha256_round_core
+ROUND_RTL := $(abspath src/rtl/sha256d/sha256_round_core.sv)
+ROUND_TB  := $(abspath src/sim/sha256d/tb_sha256_round_core.cpp)
+ROUND_DIR := $(OBJROOT)/obj_dir_round
+
+test-round:
+	@echo "==> Running round test"
+	mkdir -p $(ROUND_DIR)
+	$(VERILATOR) $(VFLAGS) -Mdir $(ROUND_DIR) \
+	  --top-module $(ROUND_TOP) \
+	  $(ROUND_RTL) $(ROUND_TB)
+	$(ROUND_DIR)/V$(ROUND_TOP)
+
+# ----------------------------------------
+# sha256_compress
+# ----------------------------------------
+COMP_TOP := sha256_compress
+COMP_RTL := $(abspath src/rtl/sha256d/sha256_compress.sv)
+COMP_TB  := $(abspath src/sim/sha256d/tb_sha256_compress.cpp)
+COMP_DIR := $(OBJROOT)/obj_dir_compress
+
+test-compress:
+	@echo "==> Running compress test"
+	mkdir -p $(COMP_DIR)
+	$(VERILATOR) $(VFLAGS) -Mdir $(COMP_DIR) \
+	  --top-module $(COMP_TOP) \
+	  $(COMP_RTL) $(COMP_TB)
+	$(COMP_DIR)/V$(COMP_TOP)
+
+# ----------------------------------------
+# miner_blockgen
+# ----------------------------------------
+COMP_TOP := miner_blockgen
+COMP_RTL := $(abspath src/rtl/miner/miner_blockgen.sv)
+COMP_TB  := $(abspath src/sim/miner/tb_miner_blockgen.cpp)
+COMP_DIR := $(OBJROOT)/obj_dir_blockgen
+
+test-blockgen:
+	@echo "==> Running blockgen test"
+	mkdir -p $(COMP_DIR)
+	$(VERILATOR) $(VFLAGS) -Mdir $(COMP_DIR) \
+	  --top-module $(COMP_TOP) \
+	  $(COMP_RTL) $(COMP_TB)
+	$(COMP_DIR)/V$(COMP_TOP)
 
 clean:
-	rm -rf build *.vcd
+	rm -rf $(OBJROOT) *.vcd *.fst

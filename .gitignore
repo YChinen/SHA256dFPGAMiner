@@ -102,3 +102,4 @@ build-*/
 
 *.vcd
 .vscode/
+samples/
