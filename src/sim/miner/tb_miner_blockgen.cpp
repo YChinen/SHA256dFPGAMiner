@@ -54,16 +54,11 @@ int main(int argc, char** argv) {
         uint32_t t_mid = dist(rng);
         uint32_t t_lo = dist(rng);
 
-        uint32_t nonce = dist(rng);
-
         // Drive block1_fixed (512-bit)
         for (int i = 0; i < 16; i++) set_be_word512(dut->block1_fixed, i, b1_w[i]);
 
         // Drive tail_fixed (96-bit) = [95:64]=hi, [63:32]=mid, [31:0]=lo
         set_tail96(dut->tail_fixed, t_hi, t_mid, t_lo);
-
-        // Drive nonce
-        dut->nonce = nonce;
 
         // Evaluate combinational
         dut->eval();
@@ -76,13 +71,13 @@ int main(int argc, char** argv) {
         }
 
         // block2_o expected mapping:
-        // W0=tail[95:64], W1=tail[63:32], W2=tail[31:0], W3=nonce
+        // W0=tail[95:64], W1=tail[63:32], W2=tail[31:0], W3=0x00000000
         // W4=0x80000000, W5..W14=0, W15=0x00000280
         uint32_t exp_w[16] = {};
         exp_w[0]  = t_hi;
         exp_w[1]  = t_mid;
         exp_w[2]  = t_lo;
-        exp_w[3]  = nonce;
+        exp_w[3]  = 0x00000000u;
         exp_w[4]  = 0x80000000u;
         for (int i = 5; i <= 14; i++) exp_w[i] = 0;
         exp_w[15] = 0x00000280u;

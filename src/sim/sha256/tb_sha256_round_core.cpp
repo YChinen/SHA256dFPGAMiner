@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
     Verilated::traceEverOn(true);
     tfp = new VerilatedVcdC;
     dut->trace(tfp, 99);
-    tfp->open("round.vcd");
+    tfp->open("round_core.vcd");
   }
 
   vluint64_t t = 0;

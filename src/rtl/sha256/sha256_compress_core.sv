@@ -1,6 +1,4 @@
-// sha256_compress.sv
-
-module sha256_compress (
+module sha256_compress_core (
   input  logic         clk,
   input  logic         rst_n,
 
@@ -33,29 +31,6 @@ module sha256_compress (
     32'h90befffa,32'ha4506ceb,32'hbef9a3f7,32'hc67178f2
   };
 
-  // ---- helpers（可変シフトは避けたいなら固定回転版にしてOK）
-  function automatic logic [31:0] rotr(input logic [31:0] x, input int s);
-    rotr = (x >> s) | (x << (32-s));
-  endfunction
-  function automatic logic [31:0] Sigma0(input logic [31:0] x);
-    Sigma0 = rotr(x,2) ^ rotr(x,13) ^ rotr(x,22);
-  endfunction
-  function automatic logic [31:0] Sigma1(input logic [31:0] x);
-    Sigma1 = rotr(x,6) ^ rotr(x,11) ^ rotr(x,25);
-  endfunction
-  function automatic logic [31:0] sigma0(input logic [31:0] x);
-    sigma0 = rotr(x,7) ^ rotr(x,18) ^ (x >> 3);
-  endfunction
-  function automatic logic [31:0] sigma1(input logic [31:0] x);
-    sigma1 = rotr(x,17) ^ rotr(x,19) ^ (x >> 10);
-  endfunction
-  function automatic logic [31:0] Ch(input logic [31:0] x,y,z);
-    Ch = (x & y) ^ (~x & z);
-  endfunction
-  function automatic logic [31:0] Maj(input logic [31:0] x,y,z);
-    Maj = (x & y) ^ (x & z) ^ (y & z);
-  endfunction
-
   // ---- internal regs
   logic running;
   logic [5:0] round;
@@ -78,7 +53,87 @@ module sha256_compress (
 
   logic [3:0] tmp_m2, tmp_m7, tmp_m15, tmp_m16;
 
+    // ---- comb wires (module outputs)
+  logic [31:0] s0_wm15, s1_wm2;
+  logic [31:0] L0_a, L1_e;
+  logic [31:0] ch_efg, maj_abc;
+
+  // ring taps (stable wires)
+  logic [31:0] w_r, w_m2, w_m7, w_m15, w_m16;
+
+  assign w_r   = W[r];
+  assign w_m2  = W[r_m2];
+  assign w_m7  = W[r_m7];
+  assign w_m15 = W[r_m15];
+  assign w_m16 = W[r_m16];
+
+  // ---- replace function calls by combinational modules
+  sha256_s_sigma0 u_s0_wm15 (.x(w_m15), .y(s0_wm15));
+  sha256_s_sigma1 u_s1_wm2  (.x(w_m2),  .y(s1_wm2));
+
+  sha256_l_sigma0 u_L0_a (.x(a), .y(L0_a));
+  sha256_l_sigma1 u_L1_e (.x(e), .y(L1_e));
+
+  sha256_ch  u_ch  (.x(e), .y(f), .z(g), .ch(ch_efg));
+  sha256_maj u_maj (.x(a), .y(b), .z(c), .maj(maj_abc));
+
+  // ---- CSA trees
+  logic [31:0] w_csa1_s, w_csa1_c;
+  logic [31:0] w_csa2_s, w_csa2_c;
+  logic [31:0] Wt_gen;
+
+  sha256_csa u_w_csa1 (
+    .x(s1_wm2), .y(w_m7), .z(s0_wm15),
+    .csa_sum(w_csa1_s), .csa_car(w_csa1_c)
+  );
+
+  sha256_csa u_w_csa2 (
+    .x(w_csa1_s),
+    .y(w_csa1_c << 1),
+    .z(w_m16),
+    .csa_sum(w_csa2_s), .csa_car(w_csa2_c)
+  );
+
+  assign Wt_gen = w_csa2_s + (w_csa2_c << 1);
+
+  // ---- T1 CSA tree: h + L1_e + ch + K + Wt
+  logic [31:0] t1_csa1_s, t1_csa1_c;
+  logic [31:0] t1_csa2_s, t1_csa2_c;
+  logic [31:0] t1_csa3_s, t1_csa3_c;
+  logic [31:0] T1_csa;
+
+  sha256_csa u_t1_csa1 (
+    .x(h), .y(L1_e), .z(ch_efg),
+    .csa_sum(t1_csa1_s), .csa_car(t1_csa1_c)
+  );
+
+  sha256_csa u_t1_csa2 (
+    .x(t1_csa1_s),
+    .y(t1_csa1_c << 1),
+    .z(K[round]),
+    .csa_sum(t1_csa2_s), .csa_car(t1_csa2_c)
+  );
+
+  // Wt は round<16 だと素の W[r]、それ以外は Wt_gen
+  logic [31:0] Wt_sel;
+  assign Wt_sel = (round < 16) ? w_r : Wt_gen;
+
+  sha256_csa u_t1_csa3 (
+    .x(t1_csa2_s),
+    .y(t1_csa2_c << 1),
+    .z(Wt_sel),
+    .csa_sum(t1_csa3_s), .csa_car(t1_csa3_c)
+  );
+
+  assign T1_csa = t1_csa3_s + (t1_csa3_c << 1);
+
+  // ---- T2: L0_a + maj (2項なので普通にCPAでOK)
+  logic [31:0] T2_cpa;
+  assign T2_cpa = L0_a + maj_abc;
+
+  // ---- next state (same as your logic)
   always_comb begin
+    // index calc (あなたのままでもOK)
     r     = round[3:0];
 
     tmp_m2  = r - 4'd2;
@@ -91,18 +146,11 @@ module sha256_compress (
     r_m15 = tmp_m15[3:0];
     r_m16 = tmp_m16[3:0];
 
+    // outputs
+    Wt = Wt_sel;     // <- 外向けが必要なら保持
+    T1 = T1_csa;
+    T2 = T2_cpa;
 
-    if (round < 16) begin
-      Wt = W[r]; // 0..15はそのまま
-    end else begin
-      // Wt = σ1(W[t-2]) + W[t-7] + σ0(W[t-15]) + W[t-16]
-      Wt = sigma1(W[r_m2]) + W[r_m7] + sigma0(W[r_m15]) + W[r_m16];
-    end
-
-    T1 = h + Sigma1(e) + Ch(e,f,g) + K[round] + Wt;
-    T2 = Sigma0(a) + Maj(a,b,c);
-
-    // next state
     nh = g;
     ng = f;
     nf = e;

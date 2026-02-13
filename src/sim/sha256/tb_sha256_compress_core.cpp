@@ -7,7 +7,7 @@
 #include <random>
 #include <array>
 
-#include "Vsha256_compress.h"
+#include "Vsha256_compress_core.h"
 
 static inline uint32_t rotr32(uint32_t x, int s) {
     return (x >> s) | (x << (32 - s));
@@ -90,13 +90,13 @@ static std::array<uint32_t,8> ref_compress(const std::array<uint32_t,8>& st, con
     return out;
 }
 
-static void tick(Vsha256_compress* dut, VerilatedVcdC* tfp, vluint64_t& t) {
+static void tick(Vsha256_compress_core* dut, VerilatedVcdC* tfp, vluint64_t& t) {
     dut->clk = 0; dut->eval(); if (tfp) tfp->dump(t++);
     dut->clk = 1; dut->eval(); if (tfp) tfp->dump(t++);
 }
 
 // Pack/unpack helpers for DUT ports
-static void drive_state_i(Vsha256_compress* dut, const std::array<uint32_t,8>& st) {
+static void drive_state_i(Vsha256_compress_core* dut, const std::array<uint32_t,8>& st) {
     // state_i is 256-bit packed; Verilator exposes as WData (array) or vluint64_t depending on width.
     // Easiest: use the generated WData type via the public member: dut->state_i[0..7] as 32-bit chunks if defined.
     // Many times it becomes `VlWide<8>` in C++ with index 0 = least-significant 32 bits.
@@ -104,13 +104,13 @@ static void drive_state_i(Vsha256_compress* dut, const std::array<uint32_t,8>& s
     for (int i=0;i<8;i++) dut->state_i[i] = st[7 - i]; // adjust if your SV packs differently
 }
 
-static std::array<uint32_t,8> read_state_o(Vsha256_compress* dut) {
+static std::array<uint32_t,8> read_state_o(Vsha256_compress_core* dut) {
     std::array<uint32_t,8> st{};
     for (int i=0;i<8;i++) st[7 - i] = dut->state_o[i]; // adjust if your SV packs differently
     return st;
 }
 
-static void drive_block_i(Vsha256_compress* dut, const uint8_t block[64]) {
+static void drive_block_i(Vsha256_compress_core* dut, const uint8_t block[64]) {
     // Similar packing caveat as state_i.
     // We'll pack 512-bit as 16 words big-endian in SV; many SV designs load W[i] from block_i[511 - 32*i -: 32]
     // That means block_i MSB holds W0.
@@ -145,13 +145,13 @@ static std::array<uint32_t,8> sha256_abc_expected() {
 
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
-    auto* dut = new Vsha256_compress;
+    auto* dut = new Vsha256_compress_core;
 
     // trace on
     Verilated::traceEverOn(true);
     VerilatedVcdC* tfp = new VerilatedVcdC;
     dut->trace(tfp, 99);
-    tfp->open("sha256_compress.vcd");
+    tfp->open("compress_core.vcd");
 
     vluint64_t t=0;
 
